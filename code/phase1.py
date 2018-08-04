@@ -11,6 +11,7 @@ This module contains code for phase-I
 # standard library
 import sys
 from itertools import zip_longest
+from bisect import bisect_left
 
 # third party library
 import numpy as np
@@ -141,10 +142,11 @@ def detect_collision(pegs, curve, max_diameter, direction, num_pts,
     plt.show()
     '''
 
+
 def compute_bezier_points(nodes, num_pts):
     assert(nodes.shape[0] == 4)
     basis = (lambda t: (1 - t) ** 3, lambda t: 3 * t * (1 - t) ** 2,
-            lambda t: 3 * t ** 2 * (1 - t), lambda t: t ** 3)
+             lambda t: 3 * t ** 2 * (1 - t), lambda t: t ** 3)
     ts = np.linspace(0, 1, num_pts)
     bs = np.array([func(ts) for func in basis]).transpose()
     points = np.dot(bs, nodes)
@@ -202,7 +204,7 @@ def handle_collision(curve, collide_tval, collide_center, collide_diameter,
                      collide_peg, pegs, direction):
     # 0. compute left pegs
     left_pegs = [row for row in pegs if not np.all(
-            np.isclose(row, collide_peg))]
+        np.isclose(row, collide_peg))]
     left_pegs = np.array(left_pegs)
     # 1. compute arc
     mid_point = curve.evaluate(collide_tval).transpose().squeeze()
@@ -222,7 +224,7 @@ def handle_collision(curve, collide_tval, collide_center, collide_diameter,
     left_nodes = left_curve.nodes.transpose()
     right_nodes = right_curve.nodes
 
-    if arc is None: # pass through peg area
+    if arc is None:  # pass through peg area
         # 2.3 compute transition matrix
         transition = np.array([[0.0], [0.0]])
         # 2.4 compute rotation origin and rotation angle
@@ -230,7 +232,7 @@ def handle_collision(curve, collide_tval, collide_center, collide_diameter,
         init_tangent = left_nodes[-1, :] - left_nodes[-2, :]
         init_tangent /= np.linalg.norm(init_tangent, 2)
         end_tangent = _compute_tangent_at_peg(
-                collide_center, collide_diameter, collide_peg, -direction)
+            collide_center, collide_diameter, collide_peg, -direction)
         rotation_angle = - _compute_angle(end_tangent, init_tangent)
     else:
         # 2.3 compute transition matrix
@@ -262,8 +264,9 @@ def simulate_unrolling(init_nodes, init_pegs, diameter, direction):
     pegs = init_pegs
     num_pts = 100
     tvals = np.linspace(0, 1, num=num_pts)
-    beziers, arcs, diameters, collide_pegs = [], [], [], []
+    origins, beziers, arcs, diameters, collide_pegs = [], [], [], [], []
     while True:
+        origins.append(curve.nodes.transpose())
         diameters.append(diameter)
         is_collide, collide_tval, collide_center, collide_diameter, collide_peg = detect_collision(
             pegs, curve, diameter, direction, num_pts)
@@ -278,16 +281,17 @@ def simulate_unrolling(init_nodes, init_pegs, diameter, direction):
         else:
             beziers.append(curve)
             break
+    assert(len(origins) == len(beziers))
     assert(len(beziers) == len(diameters))
     assert(len(collide_pegs) == len(arcs))
-    trajectory = (beziers, arcs, diameters, collide_pegs)
+    trajectory = (origins, beziers, arcs, diameters, collide_pegs)
     return trajectory
 
 
 def plot_trajectory(init_setting, trajectory, ax=None):
     # 1. unpack
     init_nodes, init_pegs, direction, diameter = init_setting
-    beziers, arcs, diametes, collide_pegs = trajectory
+    origins, beziers, arcs, diametes, collide_pegs = trajectory
     # 2. plot
     if not ax:
         fig = plt.subplot(111)
@@ -310,7 +314,7 @@ def plot_trajectory(init_setting, trajectory, ax=None):
 def animate_trajectory(init_setting, trajectory):
     # 1. unpack
     init_nodes, init_pegs, direction, diameter = init_setting
-    beziers, arcs, diametes, collide_pegs = trajectory
+    origins, beziers, arcs, diametes, collide_pegs = trajectory
     # add cycles
     length = sum(curve.length for curve in beziers)
     print(length)
@@ -345,10 +349,11 @@ def merge_paths(init_setting, trajectory, num_pts):
        [x, y, cx, cy, radius]
     """
     _, _, direction, _ = init_setting
-    beziers, arcs, diameters, _ = trajectory
+    origins, beziers, arcs, diameters, _ = trajectory
     # add cycles
     bezier_lens = [curve.length for curve in beziers]
-    arc_lens = [_compute_arc_perimeter(arc) for arc in arcs if arc is not None]
+    arc_lens = [_compute_arc_perimeter(arc) if arc is not None else 0
+                for arc in arcs]
     bezier_len = sum(bezier_lens)
     arc_len = sum(arc_lens)
     total_len = bezier_len + arc_len
@@ -366,8 +371,8 @@ def merge_paths(init_setting, trajectory, num_pts):
         if arc is not None:
             (cx, cy), diameter, theta1, theta2 = arc
             radius = diameter / 2.0
-            xs, ys = _compute_arc((cx, cy), radius, theta1, theta2, 
-                    num_pts=pts)
+            xs, ys = _compute_arc((cx, cy), radius, theta1, theta2,
+                                  num_pts=pts)
             temp = np.zeros((pts, 5))
             for i in range(pts):
                 temp[i, :] = np.array([xs[i], ys[i], cx, cy, radius])
@@ -395,49 +400,194 @@ def merge_paths(init_setting, trajectory, num_pts):
 
     # combine them together
     points = []
+    idxes = []
+    points_cnt = 0
     for bps, aps in zip_longest(bezier_points, arc_points, fillvalue=None):
         if bps is not None:
+            idxes.append(points_cnt)
             points.append(bps)
+            points_cnt += bps.shape[0]
         if aps is not None:
             points.append(aps)
-    # assert(len(points) == len(bezier_points) + len(arc_points))
+            points_cnt += aps.shape[0]
+    assert(len(points) == len(bezier_points) + len([item for item in arc_points
+                                                    if item is not None]))
     points = np.vstack(points)
+    assert(points_cnt == points.shape[0])
     assert(points.shape[1] == 5)
     # print(points.shape)
-    return points
+    idxes.append(points_cnt + 1)
+    return points, idxes
 
 
-def create_animation(init_setting, trajectory, num_pts, step, outfile=None,
-                     film_writer_title='writer'):
+def compute_axis_limits(points, pegs, margin=0.2):
+    """compute xmin, xmax, ymin, ymax"""
+    xmin = min(pegs[:, 0].min(), points[:, 0].min())
+    xmax = max(pegs[:, 0].max(), points[:, 0].max())
+    ymin = min(pegs[:, 1].min(), points[:, 1].min())
+    ymax = max(pegs[:, 1].max(), points[:, 1].max())
+    length = max(ymax - ymin, xmax - xmin) * (1 + margin)
+    xmargin = (length - (xmax - xmin)) * 0.5
+    ymargin = (length - (ymax - ymin)) * 0.5
+    return xmin - xmargin, xmax + xmargin, ymin - ymargin, ymax + ymargin
+
+
+def create_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
+                     outfile=None, film_writer_title='writer'):
+    """create animation of the unrolling process"""
     _, init_pegs, _, _ = init_setting
-    points = merge_paths(init_setting, trajectory, num_pts=num_pts)
+    origins = trajectory[0]  # stores the original bezier curve
+    points, idxes = merge_paths(init_setting, trajectory, num_pts=num_pts)
     total_pts = points.shape[0]
     # plot
-    path, circle = None, None
     fig, ax = plt.subplots()
-    # add here for phase I example
-    ax.set_xlim([-1.2, 0.8])
-    ax.set_ylim([-0.4, 1.0])
-    # plt.xticks([])
-    # plt.yticks([])
+    xmin, xmax, ymin, ymax = compute_axis_limits(points, init_pegs, margin=0.3)
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
     ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go')
+    origin_path, path, circle = None, None, None
     if outfile:
         writer = create_movie_writer(title=film_writer_title, fps=10)
         writer.setup(fig, outfile=outfile, dpi=100)
+    curr_bezier = 0
     for idx in range(1, total_pts, step):
         if path is not None:
             path.remove()
         if circle is not None:
             circle.remove()
+        if idx >= idxes[curr_bezier]:
+            if origin_path is not None:
+                origin_path.remove()
+            origin_nodes = origins[curr_bezier]
+            origin_points = compute_bezier_points(origin_nodes, num_pts=128)
+            origin_path, = ax.plot(origin_points[:, 0], origin_points[:, 1],
+                                   color='grey', linestyle='--')
+            curr_bezier += 1
         path, = ax.plot(points[:idx, 0], points[:idx, 1], 'b-')
         cx, cy, radius = points[idx - 1, 2:]
         if radius > 0:
-            xs, ys = _compute_arc((cx, cy), radius, 0.0, np.pi * 2, 20)
+            xs, ys = _compute_arc(
+                (cx, cy), radius, 0.0, np.pi * 2, circle_pnts)
             circle, = ax.plot(xs, ys, 'b-')
             if outfile:
                 writer.grab_frame()
         plt.pause(0.1)
         plt.draw()
+    if outfile:
+        writer.finish()
+        print('Creating movie {:s}'.format(outfile))
+    plt.show()
+
+
+def _compute_path_length(path):
+    """compute total length composed of a number of points"""
+    return sum(np.linalg.norm((path[i, :] - path[i + 1, :]))
+               for i in range(path.shape[0] - 1))
+
+
+def _compute_path_ts(path):
+    """compute ts corresponds to each point in that path"""
+    length = _compute_path_length(path)
+    n = path.shape[0]
+    ts = np.zeros(n)
+    accu = 0
+    for i in range(n):
+        if i == 0:
+            ts[i] = 0
+        elif i == n - 1:
+            ts[i] = 1
+        else:
+            accu += np.linalg.norm(path[i, :] - path[i - 1, :])
+            ts[i] = accu / length
+    return ts
+
+
+def _remesh_paths(path, num_pts):
+    """remesh path to num_pts"""
+    ts = np.linspace(0.0, 1.0, num_pts)
+    origin_ts = _compute_path_ts(path)
+    points = []
+    for t in ts:
+        pos = bisect_left(origin_ts, t)
+        assert(pos < path.shape[0])
+        if pos == 0:
+            points.append(path[0, :])
+        else:
+            left_t, right_t = origin_ts[pos - 1], origin_ts[pos]
+            left, right = path[pos - 1, :], path[pos, :]
+            inter_point = ((t - left_t) * right + (right_t - t) * left) / (right_t -
+                                                                           left_t)
+            points.append(inter_point)
+    return np.array(points)
+
+
+def pulling(init_setting, trajectory, pivots, outfile=None,
+            film_writer_title='writer'):
+    points, _ = merge_paths(init_setting, trajectory, num_pts=400)
+    path = []
+    for i in range(points.shape[0]):
+        if i == 0 or not np.all(np.isclose(points[i, :], points[i - 1, :])):
+            path.append(points[i])
+    path = np.array(path)
+    path = path[:, 0:2]
+    # np.savetxt('path.txt', path, fmt='%0.8f', delimiter=' ')
+    # np.savetxt('pegs.txt', init_pegs, fmt='%0.8f', delimiter=' ')
+    path_length = _compute_path_length(path)
+    # ax.plot(path[:, 0], path[:, 1], 'g-')
+    vector = np.array([-0.5, 0.5])
+    vector /= np.linalg.norm(vector, 2)
+    left_length = path_length - _compute_path_length(pivots)
+    free_end = pivots[-1, :] + left_length * vector
+    # ax.plot(pivots[:, 0], pivots[:, 1], 'go')
+    pivots = np.vstack((pivots, free_end))
+    # ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go')
+    print(_compute_path_length(path))
+    print(_compute_path_length(pivots))
+    # compute ...
+    init_path = path
+    num_pts = 100
+    steps = 40
+    fig, ax = plt.subplots()
+    init_path = _remesh_paths(init_path, num_pts)
+    paths = [init_path]
+    ax.set_xlim([-0.9, 1.1])
+    ax.set_ylim([0.0, 2.0])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go')
+    for i in range(2, pivots.shape[0] + 1):
+        end_path = pivots[0:i, :]
+        vector = end_path[-1, :] - end_path[-2, :]
+        vector /= np.linalg.norm(vector, 2)
+        left_length = _compute_path_length(
+            init_path) - _compute_path_length(end_path)
+        if left_length > 0:
+            free_end = end_path[-1, :] + left_length * vector
+            end_path = np.vstack((end_path, free_end))
+        ax.plot(end_path[:, 0], end_path[:, 1], color='grey', linestyle='--',
+                alpha=0.5)
+        end_path = _remesh_paths(end_path, num_pts)
+        paths.append(end_path)
+    # print(init_path.shape)
+    # print(end_path.shape)
+    ts = np.linspace(0.0, 1.0, steps)
+    if outfile:
+        writer = create_movie_writer(title=film_writer_title, fps=10)
+        writer.setup(fig, outfile=outfile, dpi=100)
+    path_obj = None
+    for i in range(len(paths) - 1):
+        init_path, end_path = paths[i], paths[i + 1]
+        for t in ts:
+            if path_obj is not None:
+                path_obj.remove()
+            path = (1 - t) * init_path + t * end_path
+            path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-')
+            if outfile:
+                writer.grab_frame()
+            plt.pause(0.2)
+            plt.draw()
     if outfile:
         writer.finish()
         print('Creating movie {:s}'.format(outfile))
@@ -452,7 +602,8 @@ if __name__ == "__main__":
     '''
     # [0.25, 0.38] --> [0.25, 0.35]; [0.0, 0.6] --> [0.05, 0.6]
     init_pegs = np.array([[0.25, 0.35], [0.4, 0.1],
-                          [0.6, 0.4], [0.05, 0.6], [0.4, 0.6], [0.22, 0.7]])
+                          [0.6, 0.4], [0.05, 0.6], [0.4, 0.6], [0.22, 0.7],
+                          [-0.25, 1.5]])
     init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
                            [1.0, 0.5], [1.5, 0.2]])
     direction = 1
@@ -461,23 +612,31 @@ if __name__ == "__main__":
 
     # 2. simulate unrolling process
     trajectory = simulate_unrolling(init_nodes, init_pegs, diameter, direction)
-    beziers, arcs, diameters, collide_pegs = trajectory
-    for arc in arcs:
-        if arc:
-            center, diameter, theta1, theta2 = arc
-            print(np.rad2deg(theta2 - theta1))
-    print(collide_pegs)
+    origins, beziers, arcs, diameters, collide_pegs = trajectory
 
     # 3. plot the trajectory
     fig, ax = plt.subplots()
+    for nodes in origins:
+        points = compute_bezier_points(nodes, num_pts=128)
+        ax.plot(points[:, 0], points[:, 1], color='grey', alpha=0.5,
+                linestyle='-.')
     plot_trajectory(init_setting, trajectory, ax=ax)
     plt.show()
 
-    # animation example
-    # num_pts = 400
-    # step = 2
-    # outfile = None
-    # # outfile = 'unrolling.mp4'
-    # film_writer_title = 'unrolling'
-    # create_animation(init_setting, trajectory, num_pts, step, outfile=outfile,
-    #        film_writer_title=film_writer_title)
+    # 4. unrolling animation
+    """
+    num_pts = 400
+    step = 2
+    outfile = None
+    outfile = 'unrolling-with-original.mp4'
+    film_writer_title = 'unrolling'
+    create_animation(init_setting, trajectory, num_pts, step, 40, outfile=outfile,
+            film_writer_title=film_writer_title)
+    """
+
+    # 5. pulling animation
+    """
+    pivots = np.array([[0.0, 0.0], [0.05, 0.6], [-0.25, 1.5]])
+    pulling(init_setting, trajectory, pivots, outfile=None,
+            film_writer_title='writer')
+    """

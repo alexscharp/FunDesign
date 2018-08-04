@@ -46,16 +46,19 @@ def test_unrolling():
 def test_animation():
     # 1. set parameters
     init_pegs = np.array([[0.25, 0.38], [0.4, 0.1],
-        [0.6, 0.4], [0.0, 0.6], [0.4, 0.6], [0.2, 0.8]])
+                          [0.6, 0.4], [0.0, 0.6], [0.4, 0.6], [0.2, 0.8]])
+    init_pegs = np.array([[0.25, 0.35], [0.4, 0.1],
+                          [0.6, 0.4], [0.05, 0.6], [0.4, 0.6], [0.22, 0.7],
+                          [-0.25, 1.5]])
     init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
-        [1.0, 0.5], [1.5, 0.2]])
+                           [1.0, 0.5], [1.5, 0.2]])
     direction = 1
     diameter = 0.2
     init_setting = (init_nodes, init_pegs, direction, diameter)
 
     # 2. simulate unrolling process
     trajectory = simulate_unrolling(init_nodes, init_pegs, diameter, direction)
-    beziers, arcs, diameters, collide_pegs = trajectory
+    origins, beziers, arcs, diameters, collide_pegs = trajectory
 
     # 3. plot the trajectory
     # fig, ax = plt.subplots()
@@ -65,10 +68,11 @@ def test_animation():
     # animation example
     num_pts = 400
     step = 2
-    outfile = 'unrolling.mp4'
+    outfile = 'unrolling-with-original.mp4'
     film_writer_title = 'unrolling'
-    create_animation(init_setting, trajectory, num_pts, step, outfile=outfile,
-            film_writer_title=film_writer_title)
+    circle_pnts = 40
+    create_animation(init_setting, trajectory, num_pts, step, circle_pnts,
+                     outfile=outfile, film_writer_title=film_writer_title)
 
 
 if __name__ == "__main__":
