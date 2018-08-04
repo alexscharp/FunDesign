@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # local library
-from phase1 import simulate_unrolling, plot_trajectory
+from phase1 import simulate_unrolling, plot_trajectory, create_animation
 
 sns.set()  # use seaborn style
 
@@ -43,5 +43,34 @@ def test_unrolling():
     plt.show()
 
 
+def test_animation():
+    # 1. set parameters
+    init_pegs = np.array([[0.25, 0.38], [0.4, 0.1],
+        [0.6, 0.4], [0.0, 0.6], [0.4, 0.6], [0.2, 0.8]])
+    init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
+        [1.0, 0.5], [1.5, 0.2]])
+    direction = 1
+    diameter = 0.2
+    init_setting = (init_nodes, init_pegs, direction, diameter)
+
+    # 2. simulate unrolling process
+    trajectory = simulate_unrolling(init_nodes, init_pegs, diameter, direction)
+    beziers, arcs, diameters, collide_pegs = trajectory
+
+    # 3. plot the trajectory
+    # fig, ax = plt.subplots()
+    # plot_trajectory(init_setting, trajectory, ax=ax)
+    # plt.show()
+
+    # animation example
+    num_pts = 400
+    step = 2
+    outfile = 'unrolling.mp4'
+    film_writer_title = 'unrolling'
+    create_animation(init_setting, trajectory, num_pts, step, outfile=outfile,
+            film_writer_title=film_writer_title)
+
+
 if __name__ == "__main__":
-    test_unrolling()
+    # test_unrolling()
+    test_animation()
