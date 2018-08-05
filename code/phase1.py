@@ -211,7 +211,7 @@ def handle_collision(curve, collide_tval, collide_center, collide_diameter,
     cx, cy = collide_center
     theta1 = np.arctan2(mid_point[1] - cy, mid_point[0] - cx)
     theta2 = np.arctan2(collide_peg[1] - cy, collide_peg[0] - cx)
-    if abs(theta2 - theta1) > np.pi / 2.0:
+    if abs(theta2 - theta1) > np.pi / 2.0 * 1.5:
         # arc = (collide_center, collide_diameter, theta1, theta2)
         arc = None
     else:
@@ -594,6 +594,78 @@ def pulling(init_setting, trajectory, pivots, outfile=None,
     plt.show()
 
 
+def new_pulling(init_setting, trajectory, pivots, outfile=None,
+        film_writer_title='writer'):
+    points, _ = merge_paths(init_setting, trajectory, num_pts=400)
+    path = []
+    for i in range(points.shape[0]):
+        if i == 0 or not np.all(np.isclose(points[i, :], points[i - 1, :])):
+            path.append(points[i])
+    path = np.array(path)
+    path = path[:, 0:2]
+    path = np.flipud(path)
+    pivots = np.array([[0.05, 1.27], [0.22, 0.7], [0.38, 0.38]])
+    pivots = np.vstack((path[0, :], pivots))
+    print(pivots)
+    path_length = _compute_path_length(path)
+    # vector = np.array([0.0, 0.0]) - pivots[-1, :]
+    vector = np.array([-0.4, -0.2])
+    vector /= np.linalg.norm(vector, 2)
+    left_length = path_length - _compute_path_length(pivots)
+    free_end = pivots[-1, :] + left_length * vector
+    pivots = np.vstack((pivots, free_end))
+    num_pts = 200
+    steps = 40
+    init_path = path
+    init_path = _remesh_paths(init_path, num_pts)
+    end_path = _remesh_paths(pivots, num_pts)
+    ts = np.linspace(0.0, 1.0, steps)
+    path_obj = None
+    fig, ax = plt.subplots()
+    ax.set_xlim([-0.9, 1.1])
+    ax.set_ylim([0.0, 2.0])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go')
+    if outfile:
+        writer = create_movie_writer(title=film_writer_title, fps=10)
+        writer.setup(fig, outfile=outfile, dpi=100)
+    for t in ts:
+        if path_obj is not None:
+            path_obj.remove()
+        path = (1 - t) * init_path + t * end_path
+        path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-')
+        if outfile:
+            writer.grab_frame()
+        plt.pause(0.2)
+        plt.draw()
+    if outfile:
+        writer.finish()
+        print('Creating movie {:s}'.format(outfile))
+    plt.show()
+    """
+    if outfile:
+        writer = create_movie_writer(title=film_writer_title, fps=10)
+        writer.setup(fig, outfile=outfile, dpi=100)
+    path_obj = None
+    for i in range(len(paths) - 1):
+        init_path, end_path = paths[i], paths[i + 1]
+        for t in ts:
+            if path_obj is not None:
+                path_obj.remove()
+            path = (1 - t) * init_path + t * end_path
+            path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-')
+            if outfile:
+                writer.grab_frame()
+            plt.pause(0.2)
+            plt.draw()
+    if outfile:
+        writer.finish()
+        print('Creating movie {:s}'.format(outfile))
+    plt.show()
+    """
+
+
 if __name__ == "__main__":
     # 1. set parameters
     '''
@@ -601,20 +673,32 @@ if __name__ == "__main__":
                           [0.6, 0.4], [0.0, 0.6], [0.4, 0.6], [0.2, 0.8]])
     '''
     # [0.25, 0.38] --> [0.25, 0.35]; [0.0, 0.6] --> [0.05, 0.6]
+    '''
     init_pegs = np.array([[0.25, 0.35], [0.4, 0.1],
                           [0.6, 0.4], [0.05, 0.6], [0.4, 0.6], [0.22, 0.7],
                           [-0.25, 1.5]])
+    '''
+
+    init_pegs = np.array([[0.25, 0.35], [0.4, 0.1], [0.47, 0.29], [0.38, 0.38],
+                          [0.6, 0.4], [0.05, 0.6], [0.4, 0.6], [0.22, 0.7],
+                          [-0.25, 1.5], [0.05, 1.27], [0.25, 0.90], [0.03, 0.40],
+                          [0.58, 0.63], [0.21, 0.49], [0.15, 0.05],
+                          [0.64, 0.23], [0.31, 0.93], [0.03, 0.38]
+                          ])
     init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
                            [1.0, 0.5], [1.5, 0.2]])
     direction = 1
-    diameter = 0.2
+    diameter = 0.1 # 0.2
     init_setting = (init_nodes, init_pegs, direction, diameter)
 
     # 2. simulate unrolling process
     trajectory = simulate_unrolling(init_nodes, init_pegs, diameter, direction)
     origins, beziers, arcs, diameters, collide_pegs = trajectory
+    print('collide pegs')
+    print(collide_pegs)
 
     # 3. plot the trajectory
+    """
     fig, ax = plt.subplots()
     for nodes in origins:
         points = compute_bezier_points(nodes, num_pts=128)
@@ -622,13 +706,19 @@ if __name__ == "__main__":
                 linestyle='-.')
     plot_trajectory(init_setting, trajectory, ax=ax)
     plt.show()
+    """
+
+    # 6. new pulling animation
+    pivots = None
+    new_pulling(init_setting, trajectory, pivots, outfile=None,
+            film_writer_title='writer')
 
     # 4. unrolling animation
     """
     num_pts = 400
     step = 2
     outfile = None
-    outfile = 'unrolling-with-original.mp4'
+    # outfile = 'unrolling-with-original.mp4'
     film_writer_title = 'unrolling'
     create_animation(init_setting, trajectory, num_pts, step, 40, outfile=outfile,
             film_writer_title=film_writer_title)
