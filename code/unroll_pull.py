@@ -296,6 +296,10 @@ def plot_trajectory(init_setting, trajectory, ax=None):
     if not ax:
         fig = plt.subplot(111)
         ax = fig.axes
+    for nodes in origins:
+        points = compute_bezier_points(nodes, num_pts=128)
+        ax.plot(points[:, 0], points[:, 1], color='grey', linestyle='--',
+                alpha=0.5)
     for curve in beziers:
         curve.plot(ax=ax, num_pts=128, color='b')
     for arc in arcs:
@@ -420,19 +424,20 @@ def merge_paths(init_setting, trajectory, num_pts):
     return points, idxes
 
 
-def compute_axis_limits(points, pegs, margin=0.2):
+def compute_axis_limits(origins, points, pegs, margin=0.2):
     """compute xmin, xmax, ymin, ymax"""
-    xmin = min(pegs[:, 0].min(), points[:, 0].min())
-    xmax = max(pegs[:, 0].max(), points[:, 0].max())
-    ymin = min(pegs[:, 1].min(), points[:, 1].min())
-    ymax = max(pegs[:, 1].max(), points[:, 1].max())
+    nodes = origins[0]
+    xmin = min(pegs[:, 0].min(), points[:, 0].min(), nodes[:, 0].min())
+    xmax = max(pegs[:, 0].max(), points[:, 0].max(), nodes[:, 0].max())
+    ymin = min(pegs[:, 1].min(), points[:, 1].min(), nodes[:, 1].min())
+    ymax = max(pegs[:, 1].max(), points[:, 1].max(), nodes[:, 1].max())
     length = max(ymax - ymin, xmax - xmin) * (1 + margin)
     xmargin = (length - (xmax - xmin)) * 0.5
     ymargin = (length - (ymax - ymin)) * 0.5
     return xmin - xmargin, xmax + xmargin, ymin - ymargin, ymax + ymargin
 
 
-def create_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
+def unrolling_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
                      outfile=None, film_writer_title='writer'):
     """create animation of the unrolling process"""
     _, init_pegs, _, _ = init_setting
@@ -441,12 +446,13 @@ def create_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
     total_pts = points.shape[0]
     # plot
     fig, ax = plt.subplots()
-    xmin, xmax, ymin, ymax = compute_axis_limits(points, init_pegs, margin=0.3)
+    xmin, xmax, ymin, ymax = compute_axis_limits(origins, points,
+            init_pegs, margin=0.1)
     ax.set_xlim([xmin, xmax])
     ax.set_ylim([ymin, ymax])
     ax.set_xticklabels([])
     ax.set_yticklabels([])
-    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go')
+    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go', markersize=4)
     origin_path, path, circle = None, None, None
     if outfile:
         writer = create_movie_writer(title=film_writer_title, fps=10)
@@ -463,14 +469,14 @@ def create_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
             origin_nodes = origins[curr_bezier]
             origin_points = compute_bezier_points(origin_nodes, num_pts=128)
             origin_path, = ax.plot(origin_points[:, 0], origin_points[:, 1],
-                                   color='grey', linestyle='--')
+                                   color='grey', linestyle='--', linewidth=1)
             curr_bezier += 1
-        path, = ax.plot(points[:idx, 0], points[:idx, 1], 'b-')
+        path, = ax.plot(points[:idx, 0], points[:idx, 1], 'b-', linewidth=1)
         cx, cy, radius = points[idx - 1, 2:]
         if radius > 0:
             xs, ys = _compute_arc(
                 (cx, cy), radius, 0.0, np.pi * 2, circle_pnts)
-            circle, = ax.plot(xs, ys, 'b-')
+            circle, = ax.plot(xs, ys, 'b-', linewidth=1)
             if outfile:
                 writer.grab_frame()
         plt.pause(0.1)
@@ -594,7 +600,7 @@ def pulling(init_setting, trajectory, pivots, outfile=None,
     plt.show()
 
 
-def new_pulling(init_setting, trajectory, pivots, outfile=None,
+def new_pulling_animation(init_setting, trajectory, pivots, outfile=None,
         film_writer_title='writer'):
     points, _ = merge_paths(init_setting, trajectory, num_pts=400)
     path = []
@@ -603,38 +609,55 @@ def new_pulling(init_setting, trajectory, pivots, outfile=None,
             path.append(points[i])
     path = np.array(path)
     path = path[:, 0:2]
+    """
     path = np.flipud(path)
-    pivots = np.array([[0.05, 1.27], [0.22, 0.7], [0.38, 0.38]])
+    pivots = np.array([[0.05, 1.27], [0.20, 0.7], [0.38, 0.38]])
     pivots = np.vstack((path[0, :], pivots))
-    print(pivots)
+    vector = np.array([-0.4, -0.25])
+    vector /= np.linalg.norm(vector, 2)
+    """
+
+    # pivots = np.array([[-0.1, 0.03], [0.25, 0.35], [0.19, 0.49],
+    #    [0.05, 0.60], [-0.23, 0.648]])
+    # -0.2 -0.1
+    # -0.2 -0.2
+    # -0.2 -0.25
+    # -0.18 -0.27
+    # -0.18 -0.30
+    pivots = np.array([[-0.18, -0.29], [0.25, 0.35], [0.19, 0.49], 
+        [-0.2, 0.63], [-0.23, 0.648]])
+    # vector = pivots[-1, :] - pivots[-2, :]
+    vector = np.array([-0.5, -0.5])
+    vector /= np.linalg.norm(vector, 2)
     path_length = _compute_path_length(path)
     # vector = np.array([0.0, 0.0]) - pivots[-1, :]
-    vector = np.array([-0.4, -0.2])
-    vector /= np.linalg.norm(vector, 2)
     left_length = path_length - _compute_path_length(pivots)
     free_end = pivots[-1, :] + left_length * vector
     pivots = np.vstack((pivots, free_end))
-    num_pts = 200
-    steps = 40
+    np.savetxt('pivots.txt', pivots, fmt='%0.8f', delimiter=' ')
+    num_pts = 400
+    steps = 80
     init_path = path
     init_path = _remesh_paths(init_path, num_pts)
     end_path = _remesh_paths(pivots, num_pts)
     ts = np.linspace(0.0, 1.0, steps)
     path_obj = None
     fig, ax = plt.subplots()
-    ax.set_xlim([-0.9, 1.1])
-    ax.set_ylim([0.0, 2.0])
+    ax.set_xlim([-1.0, 1.4])
+    ax.set_ylim([-0.4, 2.0])
     ax.set_xticklabels([])
     ax.set_yticklabels([])
-    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go')
+    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go', markersize=6)
     if outfile:
         writer = create_movie_writer(title=film_writer_title, fps=10)
         writer.setup(fig, outfile=outfile, dpi=100)
+    print(_compute_path_length(init_path))
+    print(_compute_path_length(end_path))
     for t in ts:
         if path_obj is not None:
             path_obj.remove()
         path = (1 - t) * init_path + t * end_path
-        path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-')
+        path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-', linewidth=1)
         if outfile:
             writer.grab_frame()
         plt.pause(0.2)
@@ -680,10 +703,18 @@ if __name__ == "__main__":
     '''
 
     init_pegs = np.array([[0.25, 0.35], [0.4, 0.1], [0.47, 0.29], [0.38, 0.38],
-                          [0.6, 0.4], [0.05, 0.6], [0.4, 0.6], [0.22, 0.7],
-                          [-0.25, 1.5], [0.05, 1.27], [0.25, 0.90], [0.03, 0.40],
-                          [0.58, 0.63], [0.21, 0.49], [0.15, 0.05],
-                          [0.64, 0.23], [0.31, 0.93], [0.03, 0.38]
+                          [0.6, 0.4],  [0.4, 0.6], [0.20, 0.7],
+                          [0.20, 0.15], [0.05, 1.27], [0.25, 0.90], [0.03, 0.40],
+                          [0.58, 0.63], [0.15, 0.05], [0.31, 0.20],
+                          [0.64, 0.23], [0.31, 0.93], [0.03, 0.38],
+                          [0.30, 0.03], [0.56, 0.06], [0.13, 1.0],
+                          [0.38, 0.74], [0.11, 1.28], [0.17, 1.09],
+                          [-0.01, 1.13], [0.06, -0.02], [0.42, 0.49],
+                          [0.00, 0.88], [-0.11, 1.28], [0.45, 0.47],
+                          [0.12, 0.33], [-0.02, 1.31],
+                          [0.15, 0.69], [0.14, 0.46], # YZ
+                          [0.19, 0.49], [-0.23, 0.648], # YZ ADD
+                          [-0.15, 0.62], # [0.05, 0.60]
                           ])
     init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
                            [1.0, 0.5], [1.5, 0.2]])
@@ -709,20 +740,22 @@ if __name__ == "__main__":
     """
 
     # 6. new pulling animation
+    """
     pivots = None
-    new_pulling(init_setting, trajectory, pivots, outfile=None,
-            film_writer_title='writer')
+    outfile = 'pulling-0.mp4'
+    # outfile = None
+    new_pulling_animation(init_setting, trajectory, pivots, outfile=outfile,
+            film_writer_title='pulling')
+    """
 
     # 4. unrolling animation
-    """
     num_pts = 400
     step = 2
-    outfile = None
-    # outfile = 'unrolling-with-original.mp4'
+    # outfile = None
+    outfile = 'unrolling-0.mp4'
     film_writer_title = 'unrolling'
-    create_animation(init_setting, trajectory, num_pts, step, 40, outfile=outfile,
+    unrolling_animation(init_setting, trajectory, num_pts, step, 40, outfile=outfile,
             film_writer_title=film_writer_title)
-    """
 
     # 5. pulling animation
     """
