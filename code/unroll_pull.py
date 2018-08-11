@@ -23,6 +23,19 @@ import seaborn as sns
 import bezier
 sns.set()
 
+def save_figure(fig, filename, dpi):
+    """
+    save figure to a file
+
+    Args:
+        fig: figure object
+        filename: outfilename
+        dpi: dpi of the figure
+    """
+    _, ext = filename.rsplit('.', 1)
+    fig.savefig(filename, format=ext, dpi=dpi, bbox_inches='tight')
+    print('saving to {:s} with {:d} DPI'.format(filename, dpi))
+
 
 def _compute_arc(center, radius, theta1=0.0, theta2=np.pi * 2, num_pts=100):
     """return xs, ys of an arc"""
@@ -457,8 +470,10 @@ def unrolling_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
     if outfile:
         writer = create_movie_writer(title=film_writer_title, fps=10)
         writer.setup(fig, outfile=outfile, dpi=100)
+        name, _ = outfile.rsplit('.', 1)
     curr_bezier = 0
-    for idx in range(1, total_pts, step):
+    steps = range(1, total_pts, step)
+    for idx in steps:
         if path is not None:
             path.remove()
         if circle is not None:
@@ -479,12 +494,18 @@ def unrolling_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
             circle, = ax.plot(xs, ys, 'b-', linewidth=1)
             if outfile:
                 writer.grab_frame()
-        plt.pause(0.1)
-        plt.draw()
+                if idx == steps[0]:
+                    save_figure(fig, name + '-initial.png', dpi=100)
+                elif idx == steps[len(steps) // 2]:
+                    save_figure(fig, name + '-intermediate.png', dpi=100)
+                elif idx == steps[-1]:
+                    save_figure(fig, name + '-final.png', dpi=100)
+        # plt.pause(0.1)
+        # plt.draw()
     if outfile:
         writer.finish()
         print('Creating movie {:s}'.format(outfile))
-    plt.show()
+    # plt.show()
 
 
 def _compute_path_length(path):

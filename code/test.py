@@ -10,6 +10,7 @@ This module contains test code
 
 # standard library
 import sys
+from subprocess import call
 
 # third party library
 import numpy as np
@@ -19,14 +20,14 @@ import seaborn as sns
 
 # local library
 from unroll_pull import (simulate_unrolling, plot_trajectory,
-unrolling_animation, create_movie_writer, _compute_path_length,
-_remesh_paths, merge_paths)
+                         unrolling_animation, create_movie_writer, _compute_path_length,
+                         _remesh_paths, merge_paths, save_figure)
 
 sns.set()  # use seaborn style
 
 
 def create_freepulling(init_setting, trajectory, outfile=None,
-        film_writer_title='writer', num_ptr=400):
+                       film_writer_title='writer', num_ptr=400):
     points, _ = merge_paths(init_setting, trajectory, num_pts=400)
     path = []
     # remove the redundant points in the trajectory path
@@ -49,6 +50,7 @@ def create_freepulling(init_setting, trajectory, outfile=None,
     if outfile:
         writer = create_movie_writer(title=film_writer_title, fps=10)
         writer.setup(fig, outfile=outfile, dpi=100)
+        name, _ = outfile.rsplit('.', 1)
     for t in ts:
         if path_obj is not None:
             path_obj.remove()
@@ -56,6 +58,8 @@ def create_freepulling(init_setting, trajectory, outfile=None,
         path_obj, = ax.plot(path[0:idx, 0], path[0:idx, 1], 'b-', linewidth=1)
         if outfile:
             writer.grab_frame()
+            if t == ts[-1]:
+                save_figure(fig, name + '.png', dpi=100)
         plt.pause(0.2)
         plt.draw()
     if outfile:
@@ -65,7 +69,7 @@ def create_freepulling(init_setting, trajectory, outfile=None,
 
 
 def create_pulling_animation(init_setting, trajectory, pivots,
-        outfile=None, film_writer_title='writer', pivots_file=None):
+                             outfile=None, film_writer_title='writer', pivots_file=None):
     points, _ = merge_paths(init_setting, trajectory, num_pts=400)
     path = []
     # remove the redundant points in the trajectory path
@@ -100,8 +104,9 @@ def create_pulling_animation(init_setting, trajectory, pivots,
     if outfile:
         writer = create_movie_writer(title=film_writer_title, fps=10)
         writer.setup(fig, outfile=outfile, dpi=100)
-    print(_compute_path_length(init_path))
-    print(_compute_path_length(end_path))
+        name, _ = outfile.rsplit('.')
+    # print(_compute_path_length(init_path))
+    # print(_compute_path_length(end_path))
     for t in ts:
         if path_obj is not None:
             path_obj.remove()
@@ -109,34 +114,38 @@ def create_pulling_animation(init_setting, trajectory, pivots,
         path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-', linewidth=1)
         if outfile:
             writer.grab_frame()
-        plt.pause(0.2)
-        plt.draw()
+            if t == ts[-1]:
+                save_figure(fig, name + '.png', dpi=100)
+        # plt.pause(0.2)
+        # plt.draw()
     if outfile:
         writer.finish()
         print('Creating movie {:s}'.format(outfile))
-    plt.show()
+    # plt.show()
 
 
 def test_rotation(angle):
     # 1. set parameters
     init_pegs = np.array([[0.25, 0.35], [0.4, 0.1], [0.47, 0.29], [0.38, 0.38],
-        [0.6, 0.4],  [0.4, 0.6], [0.20, 0.7],
-        [0.20, 0.15], [0.05, 1.27], [0.25, 0.90], [0.03, 0.40],
-        [0.58, 0.63], [0.15, 0.05], [0.31, 0.20],
-        [0.64, 0.23], [0.31, 0.93], [0.03, 0.38],
-        [0.30, 0.03], [0.56, 0.06], [0.13, 1.0],
-        [0.38, 0.74], [0.11, 1.28], [0.17, 1.09],
-        [-0.01, 1.13], [0.42, 0.49],
-        [0.00, 0.88], [-0.11, 1.28], [0.45, 0.47],
-        [0.12, 0.33], [-0.02, 1.31],
-        [0.15, 0.69], [0.14, 0.46], # YZ
-        [0.19, 0.49], [-0.23, 0.648], # YZ ADD
-        [-0.15, 0.62], # [0.05, 0.60]
-        ])
+                          [0.6, 0.4], [0.4, 0.6], [0.20, 0.7],
+                          [0.20, 0.15], [0.05, 1.27], [
+                              0.25, 0.90], [0.03, 0.40],
+                          [0.58, 0.63], [0.15, 0.05], [0.31, 0.20],
+                          [0.64, 0.23], [0.31, 0.93], [0.03, 0.38],
+                          [0.30, 0.03], [0.56, 0.06], [0.13, 1.0],
+                          [0.38, 0.74], [0.11, 1.28], [0.17, 1.09],
+                          [-0.01, 1.13], [0.42, 0.49],
+                          [0.00, 0.88], [-0.11, 1.28], [0.45, 0.47],
+                          [0.12, 0.33], [-0.02, 1.31],
+                          [0.15, 0.69], [0.14, 0.46],  # YZ
+                          [0.19, 0.49], [-0.23, 0.648],  # YZ ADD
+                          [-0.15, 0.62],  # [0.05, 0.60]
+                          ])
     init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
-        [1.0, 0.5], [1.5, 0.2]])
+                           [1.0, 0.5], [1.5, 0.2]])
 
-    T = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+    T = np.array([[np.cos(angle), -np.sin(angle)],
+                  [np.sin(angle), np.cos(angle)]])
     init_nodes = np.dot(T, init_nodes.transpose()).transpose()
 
     direction = 1
@@ -202,31 +211,32 @@ def test_animation():
     film_writer_title = 'unrolling'
     circle_pnts = 40
     unrolling_animation(init_setting, trajectory, num_pts, step, circle_pnts,
-                     outfile=outfile, film_writer_title=film_writer_title)
+                        outfile=outfile, film_writer_title=film_writer_title)
 
 
-if __name__ == "__main__":
+def pipeline():
     # test_unrolling()
     # test_animation()
     # angle = float(sys.argv[1])
     # angle = np.deg2rad(angle)
     # test_rotation(angle)
     # 1. set parameters
-    init_pegs = np.array([[0.25, 0.35], [0.4, 0.1], 
-        [0.47, 0.29], [0.38, 0.38],
-        [0.6, 0.4],  [0.4, 0.6], [0.20, 0.7],
-        [0.20, 0.15], [0.05, 1.27], [0.25, 0.90], [0.03, 0.40],
-        [0.58, 0.63], [0.15, 0.05], [0.31, 0.20],
-        [0.64, 0.23], [0.31, 0.93], [0.03, 0.38],
-        [0.30, 0.03], [0.56, 0.06], [0.13, 1.0],
-        [0.38, 0.74], [0.11, 1.28], [0.17, 1.09],
-        [-0.01, 1.13], [0.42, 0.49],
-        [0.00, 0.88], [-0.11, 1.28], [0.45, 0.47],
-        [0.12, 0.33], [-0.02, 1.31],
-        [0.15, 0.69], [0.14, 0.46], # YZ
-        [0.19, 0.49], [-0.23, 0.648], # YZ ADD
-        [-0.15, 0.62], # [0.05, 0.60]
-        ])
+    init_pegs = np.array([[0.25, 0.35], [0.4, 0.1],
+                          [0.47, 0.29], [0.38, 0.38],
+                          [0.6, 0.4], [0.4, 0.6], [0.20, 0.7],
+                          [0.20, 0.15], [0.05, 1.27], [
+                              0.25, 0.90], [0.03, 0.40],
+                          [0.58, 0.63], [0.15, 0.05], [0.31, 0.20],
+                          [0.64, 0.23], [0.31, 0.93], [0.03, 0.38],
+                          [0.30, 0.03], [0.56, 0.06], [0.13, 1.0],
+                          [0.38, 0.74], [0.11, 1.28], [0.17, 1.09],
+                          [-0.01, 1.13], [0.42, 0.49],
+                          [0.00, 0.88], [-0.11, 1.28], [0.45, 0.47],
+                          [0.12, 0.33], [-0.02, 1.31],
+                          [0.15, 0.69], [0.14, 0.46],  # YZ
+                          [0.19, 0.49], [-0.23, 0.648],  # YZ ADD
+                          [-0.15, 0.62],  # [0.05, 0.60]
+                          ])
     np.savetxt('pegs.txt', init_pegs, fmt='%0.8f', delimiter=' ')
 
     # cases 1
@@ -257,12 +267,12 @@ if __name__ == "__main__":
 
     # cases 7 different shape
     init_nodes = np.array([[0.0, 0.0], [0.3, -0.5],
-        [1.0, 1.0], [1.5, 0.2]])
+                           [1.0, 1.0], [1.5, 0.2]])
 
-
-    angle = 0 # 20 30 for cases 6, 0 30 for cases 7
+    angle = 0  # 20 30 for cases 6, 0 30 for cases 7
     angle = np.deg2rad(angle)
-    T = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+    T = np.array([[np.cos(angle), -np.sin(angle)],
+                  [np.sin(angle), np.cos(angle)]])
     init_nodes = np.dot(T, init_nodes.transpose()).transpose()
 
     direction = 1
@@ -272,7 +282,6 @@ if __name__ == "__main__":
     # 2. simulate unrolling process
     trajectory = simulate_unrolling(init_nodes, init_pegs, diameter, direction)
     origins, beziers, arcs, diameters, collide_pegs = trajectory
-
 
     # 3. plot the trajectory
     fig, ax = plt.subplots()
@@ -351,3 +360,74 @@ if __name__ == "__main__":
     # create_freepulling(init_setting, trajectory, outfile=outfile,
     #    film_writer_title='writer', num_ptr=400)
     """
+
+
+if __name__ == "__main__":
+    # case 2-1
+    case = 2
+    init_nodes = np.array([[0.0, 0.0], [0.3, 0.5],
+        [1.0, 0.1], [1.58, 0.2]])
+    angle = 0
+    name = 'case-{:d}-{:d}'.format(case, angle)
+    pivots = np.array([[-0.25, -0.1], [0.38, 0.38], [0.19, 0.49],
+        [-0.15, 0.62], [-0.23, 0.648]])
+    # 1. set initial condition
+    angle = np.deg2rad(angle)
+    T = np.array([[np.cos(angle), -np.sin(angle)],
+        [np.sin(angle), np.cos(angle)]])
+    init_nodes = np.dot(T, init_nodes.transpose()).transpose()
+
+    init_pegs = np.array([[0.25, 0.35], [0.4, 0.1],
+                          [0.47, 0.29], [0.38, 0.38],
+                          [0.6, 0.4], [0.4, 0.6], [0.20, 0.7],
+                          [0.20, 0.15], [0.05, 1.27],
+                          [0.25, 0.90], [0.03, 0.40],
+                          [0.58, 0.63], [0.15, 0.05], [0.31, 0.20],
+                          [0.64, 0.23], [0.31, 0.93], [0.03, 0.38],
+                          [0.30, 0.03], [0.56, 0.06], [0.13, 1.0],
+                          [0.38, 0.74], [0.11, 1.28], [0.17, 1.09],
+                          [-0.01, 1.13], [0.42, 0.49],
+                          [0.00, 0.88], [-0.11, 1.28], [0.45, 0.47],
+                          [0.12, 0.33], [-0.02, 1.31],
+                          [0.15, 0.69], [0.14, 0.46],
+                          [0.19, 0.49], [-0.23, 0.648],
+                          [-0.15, 0.62],
+                          ])
+
+    direction = 1
+    diameter = 0.1
+    init_setting = (init_nodes, init_pegs, direction, diameter)
+
+    # 2. simulate unrolling process
+    trajectory = simulate_unrolling(init_nodes, init_pegs, diameter, direction)
+    origins, beziers, arcs, diameters, collide_pegs = trajectory
+
+    # 3. plot the trajectory
+    # fig, ax = plt.subplots()
+    # plot_trajectory(init_setting, trajectory, ax=ax)
+    # plt.show()
+
+    # 4. create unrolling animation
+    num_pts = 400
+    step = 2
+    unrolling_outfile = name + '-unrolling.mp4'
+    unrolling_film_writer_title = 'unrolling'
+    unrolling_animation(init_setting, trajectory, num_pts, step, 40,
+            outfile=unrolling_outfile,
+            film_writer_title=unrolling_film_writer_title)
+
+    # 5. create pulling animation
+    pulling_film_writer_title = 'pulling'
+    pulling_outfile = name + '-pulling.mp4'
+    if pivots is not None:
+        pivots_file = name + '-pivots.txt'
+        create_pulling_animation(init_setting, trajectory, pivots,
+                outfile=pulling_outfile, film_writer_title=
+                pulling_film_writer_title, pivots_file=pivots_file)
+    else:
+        create_freepulling(init_setting, trajectory, outfile=pulling_outfile,
+                film_writer_title='writer', num_ptr=400)
+
+    # only use below section of code in OS X
+    call(['open', unrolling_outfile])
+    call(['open', pulling_outfile])
