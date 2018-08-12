@@ -9,6 +9,7 @@ This module contains code for phase-I
 """
 
 # standard library
+import os
 import sys
 from itertools import zip_longest
 from bisect import bisect_left
@@ -23,7 +24,56 @@ import seaborn as sns
 import bezier
 sns.set()
 
-def save_figure(fig, filename, dpi):
+# local library
+from pull_force import compute_force
+
+
+def save_artifact_figures(nodes, direction, max_diameter, directory, name,
+        num_pts=128):
+    """save figure of initial shape, partially rolled shape, rolled shape"""
+    curve = bezier.Curve.from_nodes(nodes.transpose())
+    tvals = np.linspace(0, 1, num_pts)
+    points = curve.evaluate_multi(tvals).transpose()
+    diameters = _compute_diameter(max_diameter, tvals)
+    tangents = compute_tangents(nodes, tvals)
+    norms = np.zeros(tangents.shape)
+    norms[:, 0], norms[:, 1] = -direction * \
+            tangents[:, 1], direction * tangents[:, 0]
+    centers = points + 0.5 * diameters.reshape((num_pts, 1)) * norms
+    xmin, xmax = points[:, 0].min(), points[:, 0].max()
+    ymin, ymax = points[:, 1].min(), points[:, 1].max()
+    length = max(ymax - ymin, xmax - xmin) * (1 + 0.2) # margin is 0.1
+    xmargin = (length - (xmax - xmin)) / 2.0
+    ymargin = (length - (ymax - ymin)) / 2.0
+    xmin, xmax = xmin - xmargin, xmax + xmargin
+    ymin, ymax = ymin - xmargin, ymax + xmargin
+    fig, ax = plt.subplots()
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+    ax.axis('equal')
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+
+    obj, = ax.plot(points[:, 0], points[:, 1], 'b-')
+    path = os.path.join(directory, name + '-initial.png')
+    save_figure(fig, path, dpi=100)
+    obj.remove()
+
+    xs, ys = _compute_arc(centers[0, :], diameters[0] / 2)
+    obj, = ax.plot(xs, ys, 'b-')
+    path = os.path.join(directory, name + '-rolled.png')
+    save_figure(fig, path, dpi=100)
+    obj.remove()
+
+    idx_half = num_pts // 2
+    xs, ys = _compute_arc(centers[idx_half, :], diameters[idx_half] / 2)
+    path_obj, = ax.plot(points[0:idx_half+1, 0], points[0:idx_half+1, 1], 'b-')
+    circle_obj, = ax.plot(xs, ys, 'b-')
+    path = os.path.join(directory, name + '-partially-rolled.png')
+    save_figure(fig, path, dpi=100)
+
+
+def save_figure(fig, filename, dpi=100):
     """
     save figure to a file
 
@@ -450,6 +500,175 @@ def compute_axis_limits(origins, points, pegs, margin=0.2):
     return xmin - xmargin, xmax + xmargin, ymin - ymargin, ymax + ymargin
 
 
+
+def compute_axis_limits_for_full_video(origins, points, pegs, pivots, margin=0.2):
+    """compute xmin, xmax, ymin, ymax"""
+    nodes = origins[0]
+    xmin = min(pegs[:, 0].min(), points[:, 0].min(), nodes[:, 0].min(),
+            pivots[:, 0].min())
+    xmax = max(pegs[:, 0].max(), points[:, 0].max(), nodes[:, 0].max(),
+            pivots[:, 0].max())
+    ymin = min(pegs[:, 1].min(), points[:, 1].min(), nodes[:, 1].min(),
+            pivots[:, 1].min())
+    ymax = max(pegs[:, 1].max(), points[:, 1].max(), nodes[:, 1].max(),
+            pivots[:, 1].max())
+    length = max(ymax - ymin, xmax - xmin) * (1 + margin)
+    xmargin = (length - (xmax - xmin)) * 0.5
+    ymargin = (length - (ymax - ymin)) * 0.5
+    return xmin - xmargin, xmax + xmargin, ymin - ymargin, ymax + ymargin
+
+
+def full_animation(init_setting, trajectory, pivots, num_pts, step, circle_pnts,
+        outfile=None, film_writer_title='writer', pivots_file=None,
+        writer_fps=10):
+    """create full animation of both unrolling and pulling """
+    init_nodes, init_pegs, direction, max_diameter = init_setting
+    origins = trajectory[0]  # stores the original bezier curve
+    points, idxes = merge_paths(init_setting, trajectory, num_pts=num_pts)
+    total_pts = points.shape[0]
+    # compute pivots
+    # remove the redundant points in the trajectory path
+    path = []
+    for i in range(points.shape[0]):
+        if i == 0 or not np.all(np.isclose(points[i, :], points[i - 1, :])):
+            path.append(points[i])
+    path = np.array(path)
+    path = path[:, 0:2]
+    # compute pivots
+    vector = pivots[-1, :] - pivots[-2, :]
+    vector /= np.linalg.norm(vector, 2)
+    path_length = _compute_path_length(path)
+    left_length = path_length - _compute_path_length(pivots)
+    if left_length > 1e-6:
+        free_end = pivots[-1, :] + left_length * vector
+        pivots = np.vstack((pivots, free_end))
+    if pivots_file:
+        np.savetxt(pivots_file, pivots, fmt='%0.8f', delimiter=' ')
+        print('save pivots coordinates to {}'.format(pivots_file))
+    # setup plot
+    fig, ax = plt.subplots()
+    xmin, xmax, ymin, ymax = compute_axis_limits_for_full_video(origins, points,
+            init_pegs, pivots, margin=0.1)
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    origin_path_obj, path_obj, circle_obj = None, None, None
+    if outfile:
+        writer = create_movie_writer(title=film_writer_title, fps=writer_fps)
+        writer.setup(fig, outfile=outfile, dpi=100)
+    # 0.1 create the rolling process
+    init_num_pts = 10 * writer_fps
+    init_curve = bezier.Curve.from_nodes(init_nodes.transpose())
+    tvals = np.linspace(0, 1, init_num_pts) # 10 sec
+    init_points = init_curve.evaluate_multi(tvals).transpose()
+    Ds = _compute_diameter(max_diameter, tvals)
+    tangents = compute_tangents(init_nodes, tvals)
+    norms = np.zeros(tangents.shape)
+    norms[:, 0], norms[:, 1] = -direction * \
+            tangents[:, 1], direction * tangents[:, 0]
+    centers = init_points + 0.5 * Ds.reshape((init_num_pts, 1)) * norms
+    nsteps = len(tvals)
+    for i in range(nsteps - 1, -1, -1):
+        if path_obj is not None:
+            path_obj.remove()
+        path_obj, = ax.plot(init_points[0:i + 1, 0], init_points[0:i+1, 1],
+                'b-', linewidth=1)
+        if circle_obj is not None:
+            circle_obj.remove()
+        xs, ys = _compute_arc(centers[i, :], Ds[i]/2.0, 0.0, np.pi * 2, circle_pnts)
+        circle_obj, = ax.plot(xs, ys, 'b-', linewidth=1)
+        if outfile:
+            writer.grab_frame()
+
+    # add pegs
+    ax.plot(init_pegs[:, 0], init_pegs[:, 1], 'go', markersize=6)
+    # 0.2 create the initial position and keep still
+    if origin_path_obj is not None:
+        origin_path_obj.remove()
+    if circle_obj is not None:
+        circle_obj.remove()
+    origin_points = compute_bezier_points(init_nodes, num_pts=128)
+    origin_path_obj, = ax.plot(origin_points[:, 0], origin_points[:, 1],
+        color='grey', linestyle='--', linewidth=1)
+    cx, cy, radius = points[0, 2:]
+    xs, ys = _compute_arc((cx, cy), radius, 0.0, np.pi * 2, circle_pnts)
+    circle_obj, = ax.plot(xs, ys, 'b-', linewidth=1)
+    for i in range(writer_fps * 3): # keep still for 3 sec
+        if outfile:
+            writer.grab_frame()
+
+    # 1. animate unrolling process
+    curr_bezier = 0
+    steps = range(1, total_pts, step)
+    for idx in steps:
+        if path_obj is not None:
+            path_obj.remove()
+        if circle_obj is not None:
+            circle_obj.remove()
+        if idx >= idxes[curr_bezier]:
+            if origin_path_obj is not None:
+                origin_path_obj.remove()
+            origin_nodes = origins[curr_bezier]
+            origin_points = compute_bezier_points(origin_nodes, num_pts=128)
+            origin_path_obj, = ax.plot(origin_points[:, 0], origin_points[:, 1],
+                    color='grey', linestyle='--', linewidth=1)
+            curr_bezier += 1
+        path_obj, = ax.plot(points[:idx, 0], points[:idx, 1], 'b-', linewidth=1)
+        cx, cy, radius = points[idx - 1, 2:]
+        if radius > 0:
+            xs, ys = _compute_arc(
+                    (cx, cy), radius, 0.0, np.pi * 2, circle_pnts)
+            circle_obj, = ax.plot(xs, ys, 'b-', linewidth=1)
+            if outfile:
+                writer.grab_frame()
+    if path_obj is not None:
+        path_obj.remove()
+    if circle_obj is not None:
+        circle_obj.remove()
+    if origin_path_obj is not None:
+        origin_path_obj.remove()
+    # 2. pulling animation
+    init_path = path
+    init_path = _remesh_paths(init_path, num_pts)
+    end_path = _remesh_paths(pivots, num_pts)
+    steps = 80 # hard decode
+    ts = np.linspace(0.0, 1.0, steps)
+    path_obj = None
+    """
+    fig, ax = plt.subplots()
+    xmin, xmax = -1.0, 1.4
+    ymin, ymax = -0.4, 2.0
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    """
+    for t in ts:
+        if path_obj is not None:
+            path_obj.remove()
+        path = (1 - t) * init_path + t * end_path
+        path_obj, = ax.plot(path[:, 0], path[:, 1], 'b-', linewidth=1)
+        if outfile:
+            writer.grab_frame()
+
+    """
+    for obj in (path_obj, origin_path_obj, circle_obj):
+        if obj is not None:
+            obj.remove()
+    """
+    compute_force(init_pegs, pivots, ax)
+    for i in range(writer_fps * 3):
+        if outfile:
+            writer.grab_frame()
+
+    # 3. save movie
+    if outfile:
+        writer.finish()
+        print('Creating movie {:s}'.format(outfile))
+
+
+
 def unrolling_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
                      outfile=None, film_writer_title='writer'):
     """create animation of the unrolling process"""
@@ -471,6 +690,11 @@ def unrolling_animation(init_setting, trajectory, num_pts, step, circle_pnts=40,
         writer = create_movie_writer(title=film_writer_title, fps=10)
         writer.setup(fig, outfile=outfile, dpi=100)
         name, _ = outfile.rsplit('.', 1)
+        axis_limits = np.array([xmin, xmax, ymin, ymax])
+        limits_file = name + '-axis-limits.txt'
+        np.savetxt(limits_file, axis_limits, fmt='%0.4f',
+                delimiter=' ')
+        print('save axis limits to {}'.format(limits_file))
     curr_bezier = 0
     steps = range(1, total_pts, step)
     for idx in steps:
